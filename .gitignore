@@ -49,4 +49,5 @@ po/*~
 rsconnect/
 
 # RStudio project file
-*.Rroj
+*.Rproj
+
