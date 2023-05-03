@@ -51,3 +51,6 @@ rsconnect/
 # RStudio project file
 *.Rproj
 
+# Data produced by Fitting_Simulation_Run.R
+data/
+
