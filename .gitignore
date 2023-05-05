@@ -54,3 +54,7 @@ rsconnect/
 # Data produced by Fitting_Simulation_Run.R
 data/
 
+# Rmd output
+*.html
+*.pdf
+

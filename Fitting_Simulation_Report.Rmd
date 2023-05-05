@@ -1,0 +1,230 @@
+---
+title: "Data requirements for a 'reasonable' fit of PDF to data"
+author: "Tony Clark (PHS/WSM)"
+date: "2023-05-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages(
+  {
+    #library(fitdistrplus)
+    #library(actuar)
+    library(dplyr)
+    library(tidyr)
+    library(ggplot2)
+    #library(glue)
+  }
+)
+knitr::opts_chunk$set(echo = FALSE)
+df_sim_fit <- readRDS("data/simulated_fit.rds") 
+
+n_set <- unique(df_sim_fit$n)
+
+```
+
+## Intro
+
+This purpose of this short paper is to improve our understanding of the number of data required to fit a parametric probability density function to data 'well'.
+
+```{r display-data-frame, echo=TRUE}
+head(df_sim_fit)
+
+```
+
+## Approach
+
+Observing the head of the dataframe shown above, for each of the distributions of interest ($dist \in (gamma, log\textrm{-}normal, Weibull)$), we set parameters that are the means of the fitted parameters as taken from a recent static data file ("/WholeSystMod/Syntax/WSSR/static file/data/statistics_distributions_Adult_2023-03-09.csv"). We then make $n$ draws from these three distributions where $n \in (50,100,200,400,800,1600)$. For each value of $n$, we run the simulation 1000 times. At this point we have 18,000 data sets (3 distributions * 6 $n$ values * 1000 repetitions) and each row in the dataframe above represents a single simulation (note that the $data$ column is a list column and each cell is a vector of data of length $n$ drawn from $dist$ using parameters $p1.true$ and $p2.true$. For each data set, we fit the relevant distribution - i.e. the one from which we know the data has been drawn - using the `{fitdistplusr}` package. We are using maximum goodness-of-fit estimation and in particular we are optimising parameters via the Kolmogorov-Smirnov statistic.
+
+## Fitted Parameters per current process
+
+The table below shows the first 10 rows of the distribution static file (selected columns). The summary table shows further down shows that most fits result in one of gamma, log-normal or Weibull being selected as best-fitting distribution. The split over these is roughly equal. Only in a small number of cases are we seeing the normal, exponential and Pareto distributions being fitted. For this reason, this paper focuses on the gamma, log-normal or Weibull. These are all two-parameter distributions.
+
+```{r}
+fitted_distributions <- 
+  readr::read_csv(
+    "/WholeSystMod/Syntax/WSSR/static file/data/statistics_distributions_Adult_2023-03-09.csv",
+    show_col_types = F)
+
+fitted_distributions.summary <- 
+  fitted_distributions %>% 
+  group_by(description) %>% 
+  summarise(n=n(),
+            p1.mean = mean(`parameter 1`),
+            p2.mean = mean(`parameter 2`),
+            p3.mean = mean(`parameter 3`),
+            p1.sd = sd(`parameter 1`),
+            p2.sd = sd(`parameter 2`),
+            p3.sd = sd(`parameter 3`)) %>% arrange(-n)
+
+
+fitted_distributions.summary[is.na(fitted_distributions.summary$description),"description"] <- "NOT FITTED"
+
+# get mean of fitted parameters
+gamma_p1 <- fitted_distributions.summary %>% filter(description == "gamma") %>% pull(p1.mean)
+gamma_p2 <- fitted_distributions.summary %>% filter(description == "gamma") %>% pull(p2.mean)
+weibull_p1 <- fitted_distributions.summary %>% filter(description == "weibull") %>% pull(p1.mean)
+weibull_p2 <- fitted_distributions.summary %>% filter(description == "weibull") %>% pull(p2.mean)
+lnorm_p1 <- fitted_distributions.summary %>% filter(description == "lnorm") %>% pull(p1.mean)
+lnorm_p2 <- fitted_distributions.summary %>% filter(description == "lnorm") %>% pull(p2.mean)
+
+df_fitted_params <- 
+  tibble(description = c("gamma","lnorm","weibull"),
+         p1 = c(gamma_p1,lnorm_p1,weibull_p1),
+         p2 = c(gamma_p2,lnorm_p2,weibull_p2))
+
+
+
+fitted_distributions %>% 
+  select(`Health Board`,Setting,Specialty, Distribution=description, p1=`parameter 1`,p2=`parameter 2`) %>% 
+  head() %>% 
+  knitr::kable()
+
+
+```
+
+```{r}
+
+fitted_distributions %>% 
+  filter(!is.na(`parameter 1`)) %>% 
+  count(`Distribution Name`= description, name = "Count") %>% 
+  arrange(-Count) %>% 
+  mutate(`%` = round(100*Count/sum(Count),1)) %>% 
+  knitr::kable()
+
+```
+
+The scatter plot below gives an idea of the variation in fitted parameters for each of the commonly fitted distributions. The red dot is the at the mean of p1 and p2.
+
+```{r}
+
+# A plot showing the distribution of fitted parameters for a given
+# PDF
+fitted_distributions %>% 
+  select(description,`parameter 1`,`parameter 2`) %>% 
+  filter(description %in% c("gamma","lnorm","weibull")) %>% 
+  ggplot(aes(`parameter 1`,`parameter 2`)) + 
+  geom_point() + 
+  geom_point(data = df_fitted_params, aes(p1,p2), colour = "red", size = 3) +
+  facet_wrap(~description)
+```
+
+```{r}
+
+tribble(
+  ~Distribution,~p1,~p2,
+  "gamma", !!!formalArgs(rgamma)[2:3],
+  "log-normal", !!!formalArgs(rlnorm)[2:3],
+  "Weibull", !!!formalArgs(rweibull)[2:3]  
+) %>% knitr::kable()
+
+```
+
+The chart below plots parameters fitted to each set of data (i.e. there are 6,000 points per distribution). The black dot shows the true parameters of the distribution from which the dummy data were drawn.
+
+```{r}
+df_sim_fit %>% 
+  ggplot(aes(p1,p2,colour=dist)) + 
+  geom_point(alpha=.2) +
+  geom_point(data=df_fitted_params %>% rename(dist=description), size=3, colour="black") +
+  facet_wrap(~dist)
+```
+
+The chart below shows scaled parameters and we can see in all cases that the distribution of fits is centered on the true parameters.
+
+```{r}
+
+df_sim_fit %>% 
+  group_by(dist) %>% 
+  mutate(p1.scaled = scale(p1)[,1],
+         p2.scaled = scale(p2)[,1]) %>%
+  ungroup() %>% 
+  ggplot(aes(p1.scaled,p2.scaled,colour=dist)) + 
+  geom_point(alpha=.2) +
+  facet_wrap(~dist)
+
+```
+
+We define: $error_{p} = 100 \times \frac{p_{fitted}-p_{true}}{p_{true}}$.
+
+The plot below gives a sense of how the errors reduce as sample size goes up.
+We'll consider these one parameter at a time shortly to drill into this.
+
+```{r}
+
+df_sim_fit <- df_sim_fit %>% mutate(error.p1 = 100*(p1-p1.true)/p1.true,
+                                    error.p2 = 100*(p2-p2.true)/p2.true)
+
+df_sim_fit %>% 
+  ggplot(aes(x=error.p1,y=error.p2, colour = n)) + 
+  geom_point(alpha=.5) + 
+  facet_wrap(~dist) +
+  scale_x_continuous(breaks = seq(-100,100,length.out=11)) +
+  coord_cartesian(xlim=c(-50,50),ylim=c(-50,50))
+
+```
+
+```{r}
+df_sim_fit.summary <- 
+  df_sim_fit %>% 
+  group_by(dist,n) %>% 
+  summarise(ci.p1 = quantile(p1,probs=0.975)-quantile(p1,probs=0.025),
+            ci.p2 = quantile(p2,probs=0.975)-quantile(p2,probs=0.025),
+            mean.p1 = mean(p1),
+            mean.p2 = mean(p2),
+            mean.error.p1 = mean(error.p1),
+            mean.error.p2 = mean(error.p2),
+            p1.true = first(p1.true),
+            p2.true = first(p2.true), .groups = "drop"
+            )
+  
+
+```
+
+
+## Minimum number of data w.r.t bias
+
+Below we consider the mean error in the parameters as a function of sample size. If the fitting process were unbiased then we would expect the mean error to be quite close to zero over 1000 repetitions. In the case of the gamma distribution, it seems the parameter estimates are unbiased only in an asymptotic way i.e. as the sample size grows, the mean approaches zero asymptotically. For small $n$ we are systematically over-estimating both parameters in the case of the gamma distribution - at a sample size of 50, the mean errors in the parameters are respectively ~9% and ~8%. In the case of log-normal, there's little evidence of bias in parameter estimates. In the case of the Weibull distribution there is some evidence of bias in p1 i.e. the shape parameter but it is much less clear than in the gamma case. Given that the gamma distribution is fitted in almost 1/3 of cases, the charts below suggest to limit bias in the parameters to ~2%, we should fit with no fewer than ~250 data i.e. an order of magnitude increase from our current threshold of 20.
+
+```{r}
+df_sim_fit.summary %>% 
+  select(dist,n,mean.error.p1,mean.error.p2) %>% 
+  pivot_longer(cols = c(mean.error.p1,mean.error.p2),
+               names_prefix = "mean.error.",
+               names_to = "parameter",
+               values_to = "mean.error") %>% 
+  ggplot(aes(n, mean.error,colour=dist,shape=parameter))+geom_point(alpha=.6)+
+  geom_line()+
+  scale_y_continuous(breaks = c(-1,0,2,4,6,8,10)) +
+  facet_grid(cols=vars(parameter))
+
+
+```
+
+## Minimum data w.r.t error margin
+
+We define a confidence interval as 97.5th percentile estimate - the 2.5th percentile estimate (for a given distribution, n and 1000 repetitions). 'Confidence interval' is perhaps not the correct term; half of this value gives us an indication of the error we can expect most (95%) of runs to fall within. E.g. If what were are terming $ci.p1.normalised$ is 10 then we can expect 95% of estimates obtained through this procedure to fall within +/- 5% of the true parameter value.
+
+The chart below suggest that to ensure parameter estimates are within +/- 10% of true values for all three of our most-fitted distributions then we should fit using >= ~1200 data which is significantly higher than our current threshold of 20.
+
+```{r}
+
+df_sim_fit.summary <- 
+  df_sim_fit.summary %>% 
+  mutate(ci.p1.normalised = 100*ci.p1/p1.true,
+         ci.p2.normalised = 100*ci.p2/p2.true)
+
+df_sim_fit.summary %>% 
+  ggplot(aes(n,0.5*ci.p1.normalised,colour=dist,shape=factor(n)))+geom_point(size=2.5)+geom_line(aes(group=dist))
+
+```
+
+
+
+
+
+
+
+
+
+

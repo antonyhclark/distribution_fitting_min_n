@@ -33,6 +33,8 @@ fitted_distributions.summary <-
             p3.sd = sd(`parameter 3`)) %>% arrange(-n)
 
 
+fitted_distributions.summary[is.na(fitted_distributions.summary$description),"description"] <- "NOT FITTED"
+
 
 
 
@@ -99,7 +101,7 @@ fitted_distributions %>%
   geom_point(data = df_fitted_params, aes(p1,p2), colour = "red", size = 3) +
   facet_wrap(~description)
 
-if (refresh_data <- T){
+if (refresh_data <- F){
   N <- c(50,100,200,400,800,1600)
   Reps <- 1000
   df_sim_fit <- 
@@ -118,29 +120,19 @@ if (refresh_data <- T){
 
 
 format(object.size(df_sim_fit),"MB")
-# not sure z score has any meaning here
-# df %>% 
-#   group_by(dist,n) %>% 
-#   mutate(.groups = "drop",
-#          p1.z_score= (p1-p1.true) / sd(p1),
-#          p2.z_score= (p2-p2.true) / sd(p2))
+
+if (F) {
+  # playing around with z-scores
+  x <- rnorm(1e3,50,5)
+  x_scaled <- scale(x)[,1]
+  hist(x)
+  hist(x_scaled)
+  y <- rnorm(1e3,50,25)
+  y_scaled <- scale(y)[,1]
+  hist(y)
+  hist(y_scaled)
+  sum( (x-mean(x))/sd(x) - scale(x)[,1] )  
+}
 
 
-df_sim_fit %>% 
-  group_by(dist) %>% 
-  mutate(p1.scaled = scale(p1)[,1],
-         p2.scaled = scale(p2)[,1]) %>%
-  ungroup() %>% 
-  ggplot(aes(p1.scaled,p2.scaled,colour=dist)) + 
-  geom_point(alpha=.2) +
-  facet_wrap(~dist)
 
-df_sim_fit %>% 
-  ggplot(aes(p1,p2,colour=dist)) + 
-  geom_point(alpha=.2) +
-  geom_point(data=df_fitted_params %>% rename(dist=description), size=3, colour="black") +
-  facet_wrap(~dist)
-
-df_sim_fit %>% 
-  ggplot(aes(x=(p1-p1.true)/p1.true,y=(p2-p2.true)/p2.true,colour=n))+geom_point()+facet_wrap(~dist)+
-  coord_cartesian(xlim=c(-0.5,0.5),ylim=c(-0.5,0.5))
